@@ -1,0 +1,161 @@
+# Deploy Workflow - Deploy Team360 to EKS using Helm
+# Security: Uses AWS access keys for authentication, manual trigger only
+name: Deploy to EKS
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Deployment environment'
+        required: true
+        type: choice
+        options:
+          - staging
+          - production
+      version:
+        description: 'Image version tag (e.g., v1.0.0, sha-abc1234, latest)'
+        required: true
+        type: string
+        default: 'latest'
+      dry_run:
+        description: 'Dry run (helm template only, no actual deploy)'
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+env:
+  HELM_CHART_PATH: helm/teams360
+  RELEASE_NAME: teams360
+  NAMESPACE: teams360
+
+jobs:
+  deploy:
+    name: Deploy to ${{ inputs.environment }}
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Update kubeconfig for EKS
+        run: |
+          aws eks update-kubeconfig \
+            --name ${{ secrets.EKS_CLUSTER_NAME }} \
+            --region ${{ secrets.AWS_REGION }}
+
+      - name: Install Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: 'v3.16.0'
+
+      - name: Helm dependency update
+        run: helm dependency update ${{ env.HELM_CHART_PATH }}
+
+      - name: Helm lint
+        run: |
+          helm lint ${{ env.HELM_CHART_PATH }} \
+            --set global.postgresql.credentials.password=lint-placeholder \
+            --set api.image.repository=lint-placeholder \
+            --set api.image.tag=${{ inputs.version }} \
+            --set api.secrets.JWT_SECRET=lint-placeholder \
+            --set frontend.image.repository=lint-placeholder \
+            --set frontend.image.tag=${{ inputs.version }}
+
+      - name: Helm template (validate rendering)
+        run: |
+          helm template ${{ env.RELEASE_NAME }} ${{ env.HELM_CHART_PATH }} \
+            --set global.postgresql.credentials.password=template-placeholder \
+            --set api.image.repository=${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/teams360-api \
+            --set api.image.tag=${{ inputs.version }} \
+            --set api.secrets.JWT_SECRET=template-placeholder \
+            --set frontend.image.repository=${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/teams360-frontend \
+            --set frontend.image.tag=${{ inputs.version }} \
+            --namespace ${{ env.NAMESPACE }} \
+            > /dev/null
+          echo "Template rendering successful"
+
+      - name: Deploy with Helm
+        if: ${{ !inputs.dry_run }}
+        run: |
+          helm upgrade --install ${{ env.RELEASE_NAME }} ${{ env.HELM_CHART_PATH }} \
+            --set global.postgresql.credentials.password=${{ secrets.POSTGRES_PASSWORD }} \
+            --set api.image.repository=${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/teams360-api \
+            --set api.image.tag=${{ inputs.version }} \
+            --set api.secrets.JWT_SECRET=${{ secrets.JWT_SECRET }} \
+            --set api.iamRole=arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/${{ secrets.AWS_ROLE }} \
+            --set frontend.image.repository=${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/teams360-frontend \
+            --set frontend.image.tag=${{ inputs.version }} \
+            --namespace ${{ env.NAMESPACE }} \
+            --create-namespace \
+            --wait \
+            --timeout 10m \
+            --atomic
+
+      - name: Verify rollout - PostgreSQL
+        if: ${{ !inputs.dry_run }}
+        run: |
+          kubectl rollout status statefulset/${{ env.RELEASE_NAME }}-postgresql \
+            --namespace ${{ env.NAMESPACE }} \
+            --timeout=300s
+
+      - name: Verify rollout - API
+        if: ${{ !inputs.dry_run }}
+        run: |
+          kubectl rollout status deployment/${{ env.RELEASE_NAME }}-api \
+            --namespace ${{ env.NAMESPACE }} \
+            --timeout=300s
+
+      - name: Verify rollout - Frontend
+        if: ${{ !inputs.dry_run }}
+        run: |
+          kubectl rollout status deployment/${{ env.RELEASE_NAME }}-frontend \
+            --namespace ${{ env.NAMESPACE }} \
+            --timeout=300s
+
+      - name: Post-deploy health check
+        if: ${{ !inputs.dry_run }}
+        run: |
+          # Wait for API pods to be ready
+          kubectl wait --for=condition=ready pod \
+            -l app=teams360-api,app.kubernetes.io/instance=${{ env.RELEASE_NAME }} \
+            --namespace ${{ env.NAMESPACE }} \
+            --timeout=120s
+
+          # Port-forward and check health endpoint
+          kubectl port-forward svc/${{ env.RELEASE_NAME }}-api-svc 8080:8080 \
+            --namespace ${{ env.NAMESPACE }} &
+          PF_PID=$!
+          sleep 5
+          curl -sf http://localhost:8080/health || (echo "Health check failed!" && kill $PF_PID && exit 1)
+          kill $PF_PID
+          echo "Health check passed!"
+
+      - name: Deployment summary
+        if: ${{ !inputs.dry_run }}
+        run: |
+          echo "## Deployment Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Parameter | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|-----------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Environment | ${{ inputs.environment }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Version | ${{ inputs.version }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Namespace | ${{ env.NAMESPACE }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Cluster | ${{ secrets.EKS_CLUSTER_NAME }} |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Pod Status" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          kubectl get pods -l app.kubernetes.io/instance=${{ env.RELEASE_NAME }} \
+            --namespace ${{ env.NAMESPACE }} \
+            -o wide >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
