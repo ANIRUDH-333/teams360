@@ -1,0 +1,29 @@
+apiVersion: v2
+name: teams360
+description: Team360 Health Check Application - Helm chart for EKS deployment
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+home: https://github.com/guidewire-oss/teams360
+sources:
+  - https://github.com/guidewire-oss/teams360
+maintainers:
+  - name: Team360 Contributors
+    url: https://github.com/guidewire-oss/teams360
+keywords:
+  - team-health-check
+  - spotify-model
+  - squad-health
+dependencies:
+  - name: api
+    version: 0.1.0
+    repository: "file://charts/api"
+    condition: api.enabled
+  - name: frontend
+    version: 0.1.0
+    repository: "file://charts/frontend"
+    condition: frontend.enabled
+  - name: postgresql
+    version: 0.1.0
+    repository: "file://charts/postgresql"
+    condition: postgresql.enabled

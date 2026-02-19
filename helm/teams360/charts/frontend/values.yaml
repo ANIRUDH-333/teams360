@@ -1,0 +1,3 @@
+# Frontend subchart values.
+# All configuration is managed in the parent chart's values.yaml under the "frontend:" key.
+# This file is intentionally minimal — do not add values here.

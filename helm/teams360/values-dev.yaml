@@ -1,0 +1,53 @@
+# =============================================================================
+# Dev Environment Values
+# =============================================================================
+# Usage:
+#   helm install teams360 ./helm/teams360 -f values-common.yaml -f values-dev.yaml
+#
+# Dev-specific overrides: single replicas, debug logging, relaxed resources.
+# Image repos and passwords still passed via --set (not committed).
+
+# -- Single replica for dev
+api:
+  replicaCount: 1
+  image:
+    pullPolicy: IfNotPresent
+  config:
+    GIN_MODE: "debug"
+    LOG_LEVEL: "debug"
+    LOG_PRETTY: "true"
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 250m
+      memory: 128Mi
+
+frontend:
+  replicaCount: 1
+  image:
+    pullPolicy: IfNotPresent
+  config:
+    NODE_ENV: "development"
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 250m
+      memory: 256Mi
+
+postgresql:
+  storage: 1Gi
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 250m
+      memory: 512Mi
+
+# -- Ingress disabled in dev (use port-forward instead)
+ingress:
+  enabled: false

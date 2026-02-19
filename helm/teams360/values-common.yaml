@@ -1,0 +1,66 @@
+# =============================================================================
+# Common Values - Shared across all environments
+# =============================================================================
+# Usage:
+#   helm install teams360 ./helm/teams360 -f values-common.yaml -f values-dev.yaml
+#
+# These values override the base values.yaml and apply to every environment.
+# Sensitive values (passwords, secrets, image repos) should be passed via
+# --set flags or GitHub Secrets — never committed here.
+
+# -- PostgreSQL baseline
+postgresql:
+  enabled: true
+  image: postgres:17-alpine
+  credentials:
+    user: teams360
+    database: teams360
+    sslmode: disable
+
+# -- API baseline
+api:
+  enabled: true
+  service:
+    port: 8080
+  config:
+    PORT: "8080"
+  livenessProbe:
+    httpGet:
+      path: /health
+      port: 8080
+    initialDelaySeconds: 30
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 3
+  readinessProbe:
+    httpGet:
+      path: /health
+      port: 8080
+    initialDelaySeconds: 5
+    periodSeconds: 5
+    timeoutSeconds: 3
+    failureThreshold: 3
+
+# -- Frontend baseline
+frontend:
+  enabled: true
+  service:
+    port: 3000
+  config:
+    NEXT_TELEMETRY_DISABLED: "1"
+  livenessProbe:
+    httpGet:
+      path: /
+      port: 3000
+    initialDelaySeconds: 10
+    periodSeconds: 15
+    timeoutSeconds: 3
+    failureThreshold: 3
+  readinessProbe:
+    httpGet:
+      path: /
+      port: 3000
+    initialDelaySeconds: 10
+    periodSeconds: 10
+    timeoutSeconds: 3
+    failureThreshold: 3

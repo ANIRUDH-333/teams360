@@ -1,0 +1,32 @@
+=============================================================================
+  Team360 Health Check Application
+=============================================================================
+
+Thank you for installing {{ .Chart.Name }}!
+
+To check the status of the deployment:
+  kubectl get pods -l app.kubernetes.io/instance={{ .Release.Name }} -n {{ include "teams360.namespace" . }}
+
+To view the API logs:
+  kubectl logs -l app=teams360-api -n {{ include "teams360.namespace" . }} -f
+
+To view the frontend logs:
+  kubectl logs -l app=teams360-frontend -n {{ include "teams360.namespace" . }} -f
+
+To view the PostgreSQL logs:
+  kubectl logs -l app=teams360-postgres -n {{ include "teams360.namespace" . }} -f
+
+{{- if .Values.ingress.enabled }}
+
+Ingress has been created. Check its status:
+  kubectl get ingress {{ .Release.Name }}-ingress -n {{ include "teams360.namespace" . }}
+{{- end }}
+
+{{- if not .Values.api.existingSecret.name }}
+
+WARNING: You are using chart-managed secrets. For production, consider:
+  - AWS Secrets Manager + External Secrets Operator
+  - HashiCorp Vault
+  - Sealed Secrets
+Set api.existingSecret.name to reference an externally-managed secret.
+{{- end }}

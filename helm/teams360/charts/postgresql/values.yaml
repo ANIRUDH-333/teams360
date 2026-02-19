@@ -1,0 +1,4 @@
+# PostgreSQL subchart values.
+# All configuration is managed in the parent chart's values.yaml under the "postgresql:" key.
+# Credentials are shared via global.postgresql.
+# This file is intentionally minimal — do not add values here.

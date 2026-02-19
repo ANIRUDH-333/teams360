@@ -1,0 +1,270 @@
+# =============================================================================
+# Team360 Helm Chart Values
+# =============================================================================
+# Override these values with environment-specific files and --set flags.
+#
+# Usage:
+#   helm install teams360 ./helm/teams360
+#   helm install teams360 ./helm/teams360 -f values-common.yaml -f values-dev.yaml
+#   helm install teams360 ./helm/teams360 --set api.image.tag=v1.0.0
+#
+# Layering order (last file wins):
+#   values.yaml          -> Base defaults (this file)
+#   values-common.yaml   -> Shared across all environments
+#   values-dev.yaml      -> Dev overrides (debug, single replica, relaxed resources)
+
+# -- Chart name override
+nameOverride: ""
+# -- Full name override
+fullnameOverride: ""
+
+# =============================================================================
+# Global Settings
+# =============================================================================
+global:
+  # -- Namespace override (defaults to Release.Namespace)
+  namespace: ""
+  # -- Custom labels applied to all resources (useful for org-specific metadata)
+  labels: {}
+  #   example.com/team: "my-team"
+  #   example.com/environment: "production"
+  # -- PostgreSQL connection info (shared with subcharts via global scope)
+  postgresql:
+    image: postgres:17-alpine
+    credentials:
+      user: teams360
+      password: ""
+      database: teams360
+      sslmode: disable
+    existingSecret:
+      name: ""
+
+# =============================================================================
+# PostgreSQL Configuration (In-Cluster)
+# =============================================================================
+postgresql:
+  # -- Enable in-cluster PostgreSQL
+  enabled: true
+  # -- PostgreSQL container image
+  image: postgres:17-alpine
+  # -- Persistent volume storage size
+  storage: 5Gi
+  # -- Container resource requests and limits
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 1Gi
+  # -- Database credentials
+  credentials:
+    # -- PostgreSQL username
+    user: teams360
+    # -- PostgreSQL password (REQUIRED - must be set)
+    password: ""
+    # -- Database name
+    database: teams360
+    # -- SSL mode
+    sslmode: disable
+  # -- Use an existing Secret instead of creating one
+  existingSecret:
+    # -- Name of the existing Secret containing PG credentials
+    name: ""
+
+# =============================================================================
+# Backend API Configuration
+# =============================================================================
+api:
+  # -- Enable the API subchart
+  enabled: true
+  # -- Number of replicas (overridden by HPA if enabled)
+  replicaCount: 2
+
+  image:
+    # -- API container image repository (REQUIRED)
+    repository: ""
+    # -- Image tag (defaults to Chart appVersion)
+    tag: ""
+    # -- Image pull policy
+    pullPolicy: Always
+
+  # -- AWS IAM role ARN for pod annotation (leave empty to skip)
+  iamRole: ""
+
+  serviceAccount:
+    # -- Create a ServiceAccount
+    create: true
+    # -- ServiceAccount annotations (e.g., IRSA role ARN)
+    annotations: {}
+    # -- Name override (defaults to release-name-api)
+    name: ""
+
+  service:
+    # -- Service port
+    port: 8080
+
+  # -- Container resource requests and limits
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 256Mi
+
+  # -- Non-secret environment variables (stored in ConfigMap)
+  config:
+    GIN_MODE: "release"
+    PORT: "8080"
+    LOG_LEVEL: "info"
+    LOG_PRETTY: "false"
+
+  # -- Secret values (stored in Kubernetes Secret)
+  secrets:
+    # -- JWT signing secret (REQUIRED for production)
+    JWT_SECRET: ""
+
+  # -- Reference an existing Secret instead of creating one
+  existingSecret:
+    # -- Name of the existing Secret
+    name: ""
+    # -- Key in the Secret for DATABASE_URL
+    databaseUrlKey: "DATABASE_URL"
+    # -- Key in the Secret for JWT_SECRET
+    jwtSecretKey: "JWT_SECRET"
+
+  # -- Liveness probe configuration
+  livenessProbe:
+    httpGet:
+      path: /health
+      port: 8080
+    initialDelaySeconds: 30
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 3
+
+  # -- Readiness probe configuration
+  readinessProbe:
+    httpGet:
+      path: /health
+      port: 8080
+    initialDelaySeconds: 5
+    periodSeconds: 5
+    timeoutSeconds: 3
+    failureThreshold: 3
+
+  # -- Pod annotations
+  podAnnotations: {}
+  # -- Pod labels (in addition to default labels)
+  podLabels: {}
+  # -- Node selector
+  nodeSelector: {}
+  # -- Tolerations
+  tolerations: []
+  # -- Affinity rules
+  affinity: {}
+
+# =============================================================================
+# Frontend Configuration
+# =============================================================================
+frontend:
+  # -- Enable the frontend subchart
+  enabled: true
+  # -- Number of replicas (overridden by HPA if enabled)
+  replicaCount: 2
+
+  image:
+    # -- Frontend container image repository (REQUIRED)
+    repository: ""
+    # -- Image tag (defaults to Chart appVersion)
+    tag: ""
+    # -- Image pull policy
+    pullPolicy: Always
+
+  serviceAccount:
+    # -- Create a ServiceAccount
+    create: true
+    # -- ServiceAccount annotations
+    annotations: {}
+    # -- Name override
+    name: ""
+
+  service:
+    # -- Service port
+    port: 3000
+
+  # -- Container resource requests and limits
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+  # -- Non-secret environment variables (stored in ConfigMap)
+  config:
+    NODE_ENV: "production"
+    NEXT_TELEMETRY_DISABLED: "1"
+
+  # -- Liveness probe configuration
+  livenessProbe:
+    httpGet:
+      path: /
+      port: 3000
+    initialDelaySeconds: 10
+    periodSeconds: 15
+    timeoutSeconds: 3
+    failureThreshold: 3
+
+  # -- Readiness probe configuration
+  readinessProbe:
+    httpGet:
+      path: /
+      port: 3000
+    initialDelaySeconds: 10
+    periodSeconds: 10
+    timeoutSeconds: 3
+    failureThreshold: 3
+
+  # -- Pod annotations
+  podAnnotations: {}
+  # -- Pod labels
+  podLabels: {}
+  # -- Node selector
+  nodeSelector: {}
+  # -- Tolerations
+  tolerations: []
+  # -- Affinity rules
+  affinity: {}
+
+# =============================================================================
+# Ingress (Service Exposure)
+# =============================================================================
+ingress:
+  # -- Enable Kubernetes Ingress for service exposure
+  enabled: false
+  # -- Ingress class name (e.g., "nginx", "alb", "traefik")
+  className: ""
+  # -- Ingress annotations (controller-specific)
+  annotations: {}
+  #   nginx.ingress.kubernetes.io/rewrite-target: /
+  #   cert-manager.io/cluster-issuer: letsencrypt-prod
+  # -- Ingress host rules
+  hosts: []
+  #   - host: teams360.example.com
+  #     paths:
+  #       - path: /api
+  #         pathType: Prefix
+  #         serviceName: teams360-api-svc
+  #         servicePort: 8080
+  #       - path: /
+  #         pathType: Prefix
+  #         serviceName: teams360-frontend-svc
+  #         servicePort: 3000
+  # -- TLS configuration
+  tls: []
+  #   - secretName: teams360-tls
+  #     hosts:
+  #       - teams360.example.com
