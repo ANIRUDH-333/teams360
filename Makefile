@@ -42,6 +42,7 @@ FRONTEND_PID := $(PID_DIR)/frontend.pid
 .PHONY: docker-build docker-run
 .PHONY: status info
 .PHONY: all ci
+.PHONY: helm-lint helm-template helm-dep-update helm-install helm-upgrade helm-uninstall
 .PHONY: otel-start otel-stop otel-status otel-logs run-with-otel
 .PHONY: _ensure-deps _ensure-db _kill-servers _print-banner _start-frontend _start-backend _ensure-pid-dir _ensure-otel _start-frontend-otel _start-backend-otel
 
@@ -429,10 +430,69 @@ info: status ## Alias for status
 # CI Pipeline
 # =============================================================================
 
-ci: clean install lint test build ## Full CI pipeline
+ci: clean install lint test build helm-lint ## Full CI pipeline
 	@echo "$(BOLD)$(GREEN)CI pipeline completed successfully!$(RESET)"
 
 all: ci ## Alias for ci
+
+# =============================================================================
+# Helm Chart
+# =============================================================================
+
+HELM_CHART_PATH := helm/teams360
+HELM_RELEASE_NAME := teams360
+HELM_NAMESPACE := teams360
+
+helm-lint: ## Lint Helm chart and validate templates
+	@echo "$(CYAN)Linting Helm chart...$(RESET)"
+	@helm lint $(HELM_CHART_PATH) \
+		--set global.postgresql.credentials.password=lint-test \
+		--set api.image.repository=test/teams360-api \
+		--set api.secrets.JWT_SECRET=lint-test \
+		--set frontend.image.repository=test/teams360-frontend
+	@echo "$(CYAN)Validating template rendering...$(RESET)"
+	@helm template $(HELM_RELEASE_NAME) $(HELM_CHART_PATH) \
+		--set global.postgresql.credentials.password=test \
+		--set api.image.repository=test/teams360-api \
+		--set api.secrets.JWT_SECRET=test \
+		--set frontend.image.repository=test/teams360-frontend \
+		> /dev/null
+	@echo "$(GREEN)Helm chart lint and template validation passed!$(RESET)"
+
+helm-template: ## Render Helm templates to stdout (for debugging)
+	@helm template $(HELM_RELEASE_NAME) $(HELM_CHART_PATH) \
+		--set global.postgresql.credentials.password=debug \
+		--set api.image.repository=test/teams360-api \
+		--set api.secrets.JWT_SECRET=debug \
+		--set frontend.image.repository=test/teams360-frontend
+
+helm-dep-update: ## Update Helm chart dependencies
+	@echo "$(CYAN)Updating Helm dependencies...$(RESET)"
+	@helm dependency update $(HELM_CHART_PATH)
+	@echo "$(GREEN)Helm dependencies updated!$(RESET)"
+
+helm-install: ## Install Helm chart (requires --set for image repos and secrets)
+	@echo "$(CYAN)Installing $(HELM_RELEASE_NAME)...$(RESET)"
+	@echo "$(YELLOW)Usage: make helm-install HELM_ARGS=\"--set api.image.repository=... --set global.postgresql.credentials.password=...\"$(RESET)"
+	@helm install $(HELM_RELEASE_NAME) $(HELM_CHART_PATH) \
+		-f $(HELM_CHART_PATH)/values-common.yaml \
+		-f $(HELM_CHART_PATH)/values-dev.yaml \
+		--namespace $(HELM_NAMESPACE) \
+		--create-namespace \
+		$(HELM_ARGS)
+
+helm-upgrade: ## Upgrade Helm release
+	@echo "$(CYAN)Upgrading $(HELM_RELEASE_NAME)...$(RESET)"
+	@helm upgrade $(HELM_RELEASE_NAME) $(HELM_CHART_PATH) \
+		-f $(HELM_CHART_PATH)/values-common.yaml \
+		-f $(HELM_CHART_PATH)/values-dev.yaml \
+		--namespace $(HELM_NAMESPACE) \
+		$(HELM_ARGS)
+
+helm-uninstall: ## Uninstall Helm release
+	@echo "$(CYAN)Uninstalling $(HELM_RELEASE_NAME)...$(RESET)"
+	@helm uninstall $(HELM_RELEASE_NAME) --namespace $(HELM_NAMESPACE)
+	@echo "$(GREEN)$(HELM_RELEASE_NAME) uninstalled!$(RESET)"
 
 # =============================================================================
 # Observability Stack (Jaeger, Prometheus, Grafana, OTel Collector)
